@@ -1,4 +1,4 @@
 import _gravity
 
-_gravity.run()
-
+NSTEPS = 200000
+_gravity.run(NSTEPS)

@@ -9,7 +9,6 @@
 #include <time.h>
 #define NBODIES 50
 
-const unsigned long NSTEPS = 1e6;
 const float DAMPING  = 1 - 1e-7;
 const float SOFTENING = 10;
 const double R = 200;
@@ -26,11 +25,9 @@ struct Body {
     double vz;
 };
 
-struct Space {
-    struct Body* bodies[NBODIES];
-} space;
+struct Body *bodies[NBODIES];
 
-void setSpace(struct Space* space){
+void setSpace(struct Body *bodies[NBODIES]){
     srand (time(NULL));
     double avg_vx = 0;
     double avg_vy = 0;
@@ -44,13 +41,13 @@ void setSpace(struct Space* space){
         double vy = (rand() * 2 - 1) * V / (double)RAND_MAX;
         double vz = (rand() * 2 - 1) * V / (double)RAND_MAX;
         if ((x * x + y * y + z * z) <= R * R) {
-            space->bodies[i] = (struct Body*)malloc(sizeof(struct Body));
-            space->bodies[i]->x = x;
-            space->bodies[i]->y = y;
-            space->bodies[i]->z = z;
-            space->bodies[i]->vx = vx;
-            space->bodies[i]->vy = vy;
-            space->bodies[i]->vz = vz;
+            bodies[i] = (struct Body*)malloc(sizeof(struct Body));
+            bodies[i]->x = x;
+            bodies[i]->y = y;
+            bodies[i]->z = z;
+            bodies[i]->vx = vx;
+            bodies[i]->vy = vy;
+            bodies[i]->vz = vz;
             avg_vx += vx;
             avg_vy += vy;
             avg_vz += vz;
@@ -58,13 +55,13 @@ void setSpace(struct Space* space){
         }
     }
     for (i = 0; i < NBODIES; ++i) {
-        space->bodies[i]->vx -= avg_vx / NBODIES;
-        space->bodies[i]->vy -= avg_vy / NBODIES;
-        space->bodies[i]->vz -= avg_vz / NBODIES;
+        bodies[i]->vx -= avg_vx / NBODIES;
+        bodies[i]->vy -= avg_vy / NBODIES;
+        bodies[i]->vz -= avg_vz / NBODIES;
     }
 }
 
-void forwardGravitation(struct Body* a, struct Body* b) {
+void forwardGravitation(struct Body *a, struct Body *b) {
     double px = pow(a->x - b->x, 2);
     double py = pow(a->y - b->y, 2);
     double pz = pow(a->z - b->z, 2);
@@ -75,35 +72,38 @@ void forwardGravitation(struct Body* a, struct Body* b) {
     a->vz = (a->vz + DT * f * (b->z - a->z) / r) * DAMPING;
 }
 
-void forwardPhysics(struct Space* space) {
+void forwardPhysics(struct Body *bodies[NBODIES]) {
     for (unsigned long i = 0; i < NBODIES; i++) {
         for (unsigned long j = 0; j < NBODIES; j++) {
             if (i != j) {
-                forwardGravitation(space->bodies[i], space->bodies[j]);
+                forwardGravitation(bodies[i], bodies[j]);
             }
         }
-        space->bodies[i]->x += DT * space->bodies[i]->vx;
-        space->bodies[i]->y += DT * space->bodies[i]->vy;
-        space->bodies[i]->z += DT * space->bodies[i]->vz;
+        bodies[i]->x += DT * bodies[i]->vx;
+        bodies[i]->y += DT * bodies[i]->vy;
+        bodies[i]->z += DT * bodies[i]->vz;
     };
 }
 
-static PyObject * run() {
-    setSpace(&space);
+static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
+    unsigned long NSTEPS;
+    if (!PyArg_ParseTuple(args, "l", &NSTEPS))
+        return NULL;
+    setSpace(bodies);
     clock_t t;
     t = clock();
     for (unsigned long i = 0; i < NSTEPS; i++) {
-        forwardPhysics(&space);
+        forwardPhysics(bodies);
         printf("%ld\n", i);
     }
-   t = clock() - t;
-   double time_taken = ((double)t)/CLOCKS_PER_SEC;
-   printf("C: %f seconds to execute", time_taken);
+    t = clock() - t;
+    double time_taken = ((double)t)/CLOCKS_PER_SEC;
+    printf("C: %f seconds to execute", time_taken);
     return Py_None;
 }
 
 static PyMethodDef module_methods[] = {
-    {"run", run, METH_NOARGS, NULL}, {0, 0}
+    {"run", run, METH_VARARGS, NULL}, {0, 0}
 };
 
 static struct PyModuleDef gravity = {
