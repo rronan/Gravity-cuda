@@ -7,14 +7,10 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
-#define NBODIES 50
+#define NPY_NO_DEPRECATED_API NPY_1_8_API_VERSION
+#define PY_ARRAY_UNIQUE_SYMBOL NP_ARRAY_API
 
-const float DAMPING  = 1 - 1e-7;
-const float SOFTENING = 10;
-const double R = 200;
-const double V = 100;
-const double G = 1e5;
-const double DT = 1e-4;
+#include <numpy/arrayobject.h>
 
 struct Body {
     double x;
@@ -25,43 +21,19 @@ struct Body {
     double vz;
 };
 
-struct Body *bodies[NBODIES];
-
-void setSpace(struct Body *bodies[NBODIES]){
-    srand (time(NULL));
-    double avg_vx = 0;
-    double avg_vy = 0;
-    double avg_vz = 0;
-    int i = 0;
-    while (i < NBODIES) {
-        double x = (rand() * 2 - 1) * R / (double)RAND_MAX;
-        double y = (rand() * 2 - 1) * R / (double)RAND_MAX;
-        double z = (rand() * 2 - 1) * R / (double)RAND_MAX;
-        double vx = (rand() * 2 - 1) * V / (double)RAND_MAX;
-        double vy = (rand() * 2 - 1) * V / (double)RAND_MAX;
-        double vz = (rand() * 2 - 1) * V / (double)RAND_MAX;
-        if ((x * x + y * y + z * z) <= R * R) {
-            bodies[i] = (struct Body*)malloc(sizeof(struct Body));
-            bodies[i]->x = x;
-            bodies[i]->y = y;
-            bodies[i]->z = z;
-            bodies[i]->vx = vx;
-            bodies[i]->vy = vy;
-            bodies[i]->vz = vz;
-            avg_vx += vx;
-            avg_vy += vy;
-            avg_vz += vz;
-            i++;
-        }
-    }
-    for (i = 0; i < NBODIES; ++i) {
-        bodies[i]->vx -= avg_vx / NBODIES;
-        bodies[i]->vy -= avg_vy / NBODIES;
-        bodies[i]->vz -= avg_vz / NBODIES;
+void setSpace(struct Body *bodies[], PyArrayObject *space_arr, unsigned long nbodies){
+    for (unsigned long i=0;i<nbodies;i++){
+        bodies[i] = (struct Body*)malloc(sizeof(struct Body));
+        bodies[i]->x = *((double*)PyArray_GETPTR3(space_arr,i,0,0));
+        bodies[i]->y = *((double*)PyArray_GETPTR3(space_arr,i,1,0));
+        bodies[i]->z = *((double*)PyArray_GETPTR3(space_arr,i,2,0));
+        bodies[i]->vx = *((double*)PyArray_GETPTR3(space_arr,i,0,1));
+        bodies[i]->vy = *((double*)PyArray_GETPTR3(space_arr,i,1,1));
+        bodies[i]->vz = *((double*)PyArray_GETPTR3(space_arr,i,2,1));
     }
 }
 
-void forwardGravitation(struct Body *a, struct Body *b) {
+void forwardGravitation(struct Body *a, struct Body *b, double G, double DT, double DAMPING, double SOFTENING) {
     double px = pow(a->x - b->x, 2);
     double py = pow(a->y - b->y, 2);
     double pz = pow(a->z - b->z, 2);
@@ -72,11 +44,11 @@ void forwardGravitation(struct Body *a, struct Body *b) {
     a->vz = (a->vz + DT * f * (b->z - a->z) / r) * DAMPING;
 }
 
-void forwardPhysics(struct Body *bodies[NBODIES]) {
-    for (unsigned long i = 0; i < NBODIES; i++) {
-        for (unsigned long j = 0; j < NBODIES; j++) {
+void forwardPhysics(struct Body *bodies[], unsigned long nbodies, double G, double DT, double DAMPING, double SOFTENING) {
+    for (unsigned long i = 0; i < nbodies; i++) {
+        for (unsigned long j = 0; j < nbodies; j++) {
             if (i != j) {
-                forwardGravitation(bodies[i], bodies[j]);
+                forwardGravitation(bodies[i], bodies[j], G, DT, DAMPING, SOFTENING);
             }
         }
         bodies[i]->x += DT * bodies[i]->vx;
@@ -86,14 +58,19 @@ void forwardPhysics(struct Body *bodies[NBODIES]) {
 }
 
 static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
+    PyObject *space_object;
     unsigned long NSTEPS;
-    if (!PyArg_ParseTuple(args, "l", &NSTEPS))
-        return NULL;
-    setSpace(bodies);
+    double G, DT, DAMPING, SOFTENING;
+    if (!PyArg_ParseTuple(args, "Oldddd", &space_object, &NSTEPS, &G, &DT, &DAMPING, &SOFTENING)) return NULL;
+    PyArrayObject *space_arr;
+    space_arr = (PyArrayObject *) PyArray_ContiguousFromObject(space_object, NPY_DOUBLE, 0, 0);
+    unsigned long nbodies = PyArray_DIMS(space_arr)[0];
+    struct Body *bodies[nbodies];
+    setSpace(bodies, space_arr, nbodies);
     clock_t t;
     t = clock();
     for (unsigned long i = 0; i < NSTEPS; i++) {
-        forwardPhysics(bodies);
+        forwardPhysics(bodies, nbodies, G, DT, DAMPING, SOFTENING);
         printf("%ld\n", i);
     }
     t = clock() - t;
@@ -115,5 +92,6 @@ static struct PyModuleDef gravity = {
 PyMODINIT_FUNC
 PyInit__gravity(void) {
     Py_Initialize();
+    import_array();
     return PyModule_Create(&gravity);
 }
