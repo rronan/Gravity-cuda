@@ -29,16 +29,19 @@ void forwardGravitation(struct Body *a, struct Body *b, double G, double DT, dou
     double py = pow(*a->y - *b->y, 2);
     double pz = pow(*a->z - *b->z, 2);
     double r = pow(px + py + pz + SOFTENING, .5);
-    double f = G / (r * r);
-    *a->vx = (*a->vx + DT * f * (*b->x - *a->x) / r) * DAMPING;
-    *a->vy = (*a->vy + DT * f * (*b->y - *a->y) / r) * DAMPING;
-    *a->vz = (*a->vz + DT * f * (*b->z - *a->z) / r) * DAMPING;
+    double h = DT * G / (r * r * r);
+    *a->vx = (*a->vx + h * (*b->x - *a->x)) * DAMPING;
+    *a->vy = (*a->vy + h * (*b->y - *a->y)) * DAMPING;
+    *a->vz = (*a->vz + h * (*b->z - *a->z)) * DAMPING;
+    *b->vx = (*b->vx + h * (*a->x - *b->x)) * DAMPING;
+    *b->vy = (*b->vy + h * (*a->y - *b->y)) * DAMPING;
+    *b->vz = (*b->vz + h * (*a->z - *b->z)) * DAMPING;
 }
 
 void forwardPhysics(struct Body *bodies[], unsigned long nbodies, double G, double DT, double DAMPING, double SOFTENING) {
     for (unsigned long i = 0; i < nbodies; i++) {
-        for (unsigned long j = 0; j < nbodies; j++) {
-            if (i != j) forwardGravitation(bodies[i], bodies[j], G, DT, DAMPING, SOFTENING);
+        for (unsigned long j = 0; j < i; j++) {
+            forwardGravitation(bodies[i], bodies[j], G, DT, DAMPING, SOFTENING);
         }
         *bodies[i]->x += DT * (*bodies[i]->vx);
         *bodies[i]->y += DT * (*bodies[i]->vy);
@@ -60,7 +63,7 @@ static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
     t = clock();
     for (unsigned long i = 0; i < NSTEPS; i++) {
         forwardPhysics(bodies, nbodies, G, DT, DAMPING, SOFTENING);
-        printf("%ld\n", i);
+        /* printf("%ld\n", i); */
     }
     t = clock() - t;
     double time_taken = ((double)t)/CLOCKS_PER_SEC;

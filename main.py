@@ -1,7 +1,7 @@
 import _gravity
 import numpy as np
 
-NSTEPS = 10
+NSTEPS = 100000
 NBODIES = 100
 R = 200
 V = 100
@@ -20,7 +20,9 @@ def get_space():
     return space
 
 
-space = get_space()
+# space = get_space()
+# np.save("space0.npy", space)
+space = np.load("space0.npy")
 print(space[0])
 _gravity.run(space, NSTEPS, G, DT, DAMPING, SOFTENING)
 print(space[0])
