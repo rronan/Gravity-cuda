@@ -24,6 +24,15 @@ void setSpace(struct Body *bodies[], PyArrayObject *space_arr, unsigned long nbo
     }
 }
 
+void writeSpace(struct Body *bodies[], unsigned long nbodies){
+    FILE *f = fopen("result.data", "a");
+    for (unsigned long i=0;i<nbodies;i++) {
+        fprintf(f, "%f %f %f\n", *bodies[i]->x, *bodies[i]->y, *bodies[i]->z);
+    }
+    fwrite("\n", sizeof(char), 1, f);
+    fclose(f);
+}
+
 void forwardGravitation(struct Body *a, struct Body *b, double G, double DT, double DAMPING, double SOFTENING) {
     double px = pow(*a->x - *b->x, 2);
     double py = pow(*a->y - *b->y, 2);
@@ -51,9 +60,9 @@ void forwardPhysics(struct Body *bodies[], unsigned long nbodies, double G, doub
 
 static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
     PyObject *space_object;
-    unsigned long NSTEPS;
+    unsigned long NSTEPS, WRITE_INTERVAL;
     double G, DT, DAMPING, SOFTENING;
-    if (!PyArg_ParseTuple(args, "Oldddd", &space_object, &NSTEPS, &G, &DT, &DAMPING, &SOFTENING)) return NULL;
+    if (!PyArg_ParseTuple(args, "Olddddl", &space_object, &NSTEPS, &G, &DT, &DAMPING, &SOFTENING, &WRITE_INTERVAL)) return NULL;
     PyArrayObject *space_arr;
     space_arr = (PyArrayObject *) PyArray_ContiguousFromObject(space_object, NPY_DOUBLE, 0, 0);
     unsigned long nbodies = PyArray_DIMS(space_arr)[0];
@@ -61,10 +70,19 @@ static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
     setSpace(bodies, space_arr, nbodies);
     clock_t t;
     t = clock();
+    long c = WRITE_INTERVAL;
+    FILE *f = fopen("result.data", "w");
+    fclose(f);
     for (unsigned long i = 0; i < NSTEPS; i++) {
         forwardPhysics(bodies, nbodies, G, DT, DAMPING, SOFTENING);
-        /* printf("%ld\n", i); */
+        c--;
+        if (c <= 0) {
+            printf("%ld\r", i);
+            writeSpace(bodies, nbodies);
+            c = WRITE_INTERVAL;
+        }
     }
+    printf("\n");
     t = clock() - t;
     double time_taken = ((double)t)/CLOCKS_PER_SEC;
     printf("C: %f seconds to execute", time_taken);
