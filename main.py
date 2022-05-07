@@ -1,5 +1,9 @@
+from math import pi
+
 import _gravity
 import numpy as np
+
+from display3d import Display3d
 
 NSTEPS = 100000
 NBODIES = 100
@@ -7,13 +11,20 @@ R = 200
 V = 100
 G = 1e5
 DT = 1e-4
-DAMPING = 1 - 1e-7
-SOFTENING = 10
+# DAMPING = 1 - 1e-8
+DAMPING = 1
+SOFTENING = 0.01
 WRITE_INTERVAL = 10
 
 
 def get_space():
-    space = np.random.rand(NBODIES, 3, 2) * 2 - 1
+    polar = np.random.rand(NBODIES, 2, 2) * 2 * pi
+    space = np.zeros((NBODIES, 3, 2))
+    space[:, 0] = np.cos(polar[:, 0]) * np.cos(polar[:, 1])
+    space[:, 1] = np.sin(polar[:, 0]) * np.cos(polar[:, 1])
+    space[:, 2] = np.sin(polar[:, 1])
+    # comment this to have all stars on the sphere
+    # space *= np.random.rand(NBODIES, 1, 2)
     space[:, :, 0] *= R
     space[:, :, 1] *= V
     space[:, :, 0] -= space[:, :, 0].mean(0)
@@ -36,9 +47,8 @@ def parse_results():
     return res
 
 
-# space = get_space()
-# np.save("space0.npy", space)
-space = np.load("space0.npy")
+space = get_space()
 _gravity.run(space, NSTEPS, G, DT, DAMPING, SOFTENING, WRITE_INTERVAL)
 trajectories = parse_results()
-print(trajectories)
+app = Display3d(trajectories / 10, camera_position=[0, R / 10 * 5, 0], object_scale=1)
+app.run()

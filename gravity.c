@@ -77,7 +77,7 @@ static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
         forwardPhysics(bodies, nbodies, G, DT, DAMPING, SOFTENING);
         c--;
         if (c <= 0) {
-            printf("%ld\r", i);
+            printf("%ld\r", i + 1);
             writeSpace(bodies, nbodies);
             c = WRITE_INTERVAL;
         }
@@ -85,7 +85,7 @@ static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
     printf("\n");
     t = clock() - t;
     double time_taken = ((double)t)/CLOCKS_PER_SEC;
-    printf("C: %f seconds to execute", time_taken);
+    printf("C: %f seconds to execute\n", time_taken);
     return Py_None;
 }
 
