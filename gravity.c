@@ -63,29 +63,24 @@ static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
     unsigned long NSTEPS, WRITE_INTERVAL;
     double G, DT, DAMPING, SOFTENING;
     if (!PyArg_ParseTuple(args, "Olddddl", &space_object, &NSTEPS, &G, &DT, &DAMPING, &SOFTENING, &WRITE_INTERVAL)) return NULL;
-    PyArrayObject *space_arr;
-    space_arr = (PyArrayObject *) PyArray_ContiguousFromObject(space_object, NPY_DOUBLE, 0, 0);
+    PyArrayObject *space_arr = (PyArrayObject *) PyArray_ContiguousFromObject(space_object, NPY_DOUBLE, 0, 0);
     unsigned long nbodies = PyArray_DIMS(space_arr)[0];
     struct Body *bodies[nbodies];
     setSpace(bodies, space_arr, nbodies);
-    clock_t t;
-    t = clock();
-    long c = WRITE_INTERVAL;
     FILE *f = fopen("result.data", "w");
     fclose(f);
+    clock_t t = clock();
     for (unsigned long i = 0; i < NSTEPS; i++) {
         forwardPhysics(bodies, nbodies, G, DT, DAMPING, SOFTENING);
-        c--;
-        if (c <= 0) {
+        if (i % WRITE_INTERVAL == 0) {
             printf("%ld\r", i + 1);
             writeSpace(bodies, nbodies);
-            c = WRITE_INTERVAL;
         }
     }
     printf("\n");
     t = clock() - t;
-    double time_taken = ((double)t)/CLOCKS_PER_SEC;
-    printf("C: %f seconds to execute\n", time_taken);
+    double dt = ((double)t)/CLOCKS_PER_SEC;
+    printf("C: %f seconds to execute\n", dt);
     return Py_None;
 }
 

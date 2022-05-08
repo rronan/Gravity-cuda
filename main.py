@@ -1,3 +1,4 @@
+import sys
 from math import pi
 
 import _gravity
@@ -5,11 +6,11 @@ import numpy as np
 
 from display3d import Display3d
 
-NSTEPS = 100000
-NBODIES = 100
-R = 200
-V = 100
-G = 1e5
+NSTEPS = 50000
+NBODIES = 2500
+R = 10
+V = 600
+G = 2e3
 DT = 1e-4
 # DAMPING = 1 - 1e-8
 DAMPING = 1
@@ -17,23 +18,28 @@ SOFTENING = 0.01
 WRITE_INTERVAL = 10
 
 
+def get_sphere():
+    theta = np.random.rand(NBODIES) * 2 * pi
+    phi = np.arccos(np.random.rand(NBODIES) * 2 - 1)
+    x = np.cos(theta) * np.sin(phi)
+    y = np.sin(theta) * np.sin(phi)
+    z = np.cos(phi)
+    res = np.stack([x, y, z], 1)
+    return res
+
+
 def get_space():
-    polar = np.random.rand(NBODIES, 2, 2) * 2 * pi
-    space = np.zeros((NBODIES, 3, 2))
-    space[:, 0] = np.cos(polar[:, 0]) * np.cos(polar[:, 1])
-    space[:, 1] = np.sin(polar[:, 0]) * np.cos(polar[:, 1])
-    space[:, 2] = np.sin(polar[:, 1])
+    sphere = get_sphere()
     # comment this to have all stars on the sphere
     # space *= np.random.rand(NBODIES, 1, 2)
-    space[:, :, 0] *= R
-    space[:, :, 1] *= V
+    space = np.stack([sphere * R, sphere * V], 2)
     space[:, :, 0] -= space[:, :, 0].mean(0)
     space[:, :, 1] -= space[:, :, 1].mean(0)
     return space
 
 
-def parse_results():
-    with open("result.data", "r") as f:
+def parse_results(result_path="result.data"):
+    with open(result_path, "r") as f:
         text_list = f.readlines()
     space_list = []
     space = []
@@ -47,8 +53,11 @@ def parse_results():
     return res
 
 
-space = get_space()
-_gravity.run(space, NSTEPS, G, DT, DAMPING, SOFTENING, WRITE_INTERVAL)
-trajectories = parse_results()
-app = Display3d(trajectories / 10, camera_position=[0, R / 10 * 5, 0], object_scale=1)
+if len(sys.argv) > 1:
+    trajectories = parse_results(sys.argv[1])
+else:
+    space = get_space()
+    _gravity.run(space, NSTEPS, G, DT, DAMPING, SOFTENING, WRITE_INTERVAL)
+    trajectories = parse_results()
+app = Display3d(trajectories, camera_position=[0, R * 40, 0], object_scale=1.5)
 app.run()
