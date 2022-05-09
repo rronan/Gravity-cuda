@@ -7,7 +7,7 @@ import numpy as np
 from display3d import Display3d
 
 NSTEPS = 100000
-NBODIES = 20
+NBODIES = 200
 R = 10
 V = 20
 G = 2e3

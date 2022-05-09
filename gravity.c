@@ -3,7 +3,7 @@
 #define PY_ARRAY_UNIQUE_SYMBOL NP_ARRAY_API
 #include <numpy/arrayobject.h>
 
-unsigned long NSTEPS, WRITE_INTERVAL;
+unsigned long NSTEPS, WRITE_INTERVAL, NBODIES;
 double G, DT, DAMPING, SOFTENING;
 int SQRTNT;
 
@@ -16,18 +16,16 @@ struct Body {
     double* vz;
 };
 
-struct ThreadData {
+typedef struct ThreadData {
     int chunk_i;
     int chunk_j;
     unsigned long chunk_size;
-    unsigned long nbodies;
-    struct Body* bodies;
-};
+} ThreadData;
 
 PyObject* init_space;
 
-void setSpace(struct Body *bodies[], PyArrayObject *space_arr, unsigned long nbodies){
-    for (unsigned long i=0;i<nbodies;i++){
+void setSpace(struct Body *bodies[], PyArrayObject *space_arr){
+    for (unsigned long i=0;i<NBODIES;i++){
         bodies[i] = (struct Body*)malloc(sizeof(struct Body));
         bodies[i]->x = (double*)PyArray_GETPTR3(space_arr,i,0,0);
         bodies[i]->y = (double*)PyArray_GETPTR3(space_arr,i,1,0);
@@ -38,9 +36,9 @@ void setSpace(struct Body *bodies[], PyArrayObject *space_arr, unsigned long nbo
     }
 }
 
-void writeSpace(struct Body *bodies[], unsigned long nbodies){
+void writeSpace(struct Body *bodies[]){
     FILE *f = fopen("result.data", "a");
-    for (unsigned long i=0;i<nbodies;i++) {
+    for (unsigned long i=0;i<NBODIES;i++) {
         fprintf(f, "%f %f %f\n", *bodies[i]->x, *bodies[i]->y, *bodies[i]->z);
     }
     fwrite("\n", sizeof(char), 1, f);
@@ -61,18 +59,18 @@ void forwardGravitation(struct Body *a, struct Body *b) {
     *b->vz = (*b->vz + h * (*a->z - *b->z)) * DAMPING;
 }
 
-void forwardVelocity(struct Body *bodies[], unsigned long nbodies) {
-    for (unsigned long i = 0; i < nbodies; i++) {
+void forwardVelocity(struct Body *bodies[]) {
+    for (unsigned long i = 0; i < NBODIES; i++) {
         for (unsigned long j = 0; j < i; j++) {
             forwardGravitation(bodies[i], bodies[j]);
         }
     }
 }
 
-void forwardTriangleStep(unsigned long i, unsigned long j, struct Body *bodies[], unsigned long nbodies) {
-    /* Takes i,j in [0, nbodies/2], perform two steps of the triangular matrix */
-    unsigned long ii = nbodies / 2 + i;
-    unsigned long jj = nbodies / 2 + j;
+void forwardTriangleStep(unsigned long i, unsigned long j, struct Body *bodies[]) {
+    /* Takes i,j in [0, NBODIES/2], perform two steps of the triangular matrix */
+    unsigned long ii = NBODIES / 2 + i;
+    unsigned long jj = NBODIES / 2 + j;
     forwardGravitation(bodies[ii], bodies[j]);
     if (i < j) {
         forwardGravitation(bodies[i], bodies[j]);
@@ -81,29 +79,29 @@ void forwardTriangleStep(unsigned long i, unsigned long j, struct Body *bodies[]
     }
 }
 
-void forwardTriangleChunk(struct ThreadData* td) {
-    for (unsigned long i = td->chunk_i * td->chunk_size; i < (td->chunk_i + 1) * td->chunk_size; i++) {
-        for (unsigned long j = td->chunk_j * td->chunk_size; j < (td->chunk_j + 1) * td->chunk_size; j++) {
-            forwardTriangleStep(i, j, &td->bodies, td->nbodies);
+void forwardTriangleChunk(struct Body* bodies[], ThreadData td) {
+    for (unsigned long i = td.chunk_i * td.chunk_size; i < (td.chunk_i + 1) * td.chunk_size; i++) {
+        for (unsigned long j = td.chunk_j * td.chunk_size; j < (td.chunk_j + 1) * td.chunk_size; j++) {
+            forwardTriangleStep(i, j, bodies);
         }
     }
 }
 
 
-void forwardVelocityThreads(struct Body *bodies[], unsigned long nbodies) {
-    unsigned long chunk_size = nbodies / 2 / SQRTNT;
-    pthread_t pth[SQRTNT * SQRTNT];
+void forwardVelocityThreads(struct Body *bodies[]) {
+    unsigned long chunk_size = NBODIES / 2 / SQRTNT;
+    /* pthread_t pth[SQRTNT * SQRTNT]; */
     for (int chunk_i = 0; chunk_i < SQRTNT; chunk_i++){
         for (int chunk_j = 0; chunk_j < SQRTNT; chunk_j++) {
-            struct ThreadData* td;
-            td->chunk_i = chunk_i;
-            td->chunk_j = chunk_j;
-            td->chunk_size = chunk_size;
-            td->bodies = (struct Body*) malloc( sizeof(struct Body*) * nbodies);
-            for (unsigned b = 0; b < nbodies; b++) {
-                td->bodies[b] = *bodies[b];
-            }
-            forwardTriangleChunk(td);
+            ThreadData td = { .chunk_i = chunk_i, .chunk_j = chunk_j, .chunk_size = chunk_size };
+            forwardTriangleChunk(bodies, td);
+            /* td->chunk_i = chunk_i; */
+            /* td->chunk_j = chunk_j; */
+            /* td->chunk_size = chunk_size; */
+            /* td->bodies = (struct Body*) malloc( sizeof(struct Body*) * NBODIES); */
+            /* for (unsigned b = 0; b < NBODIES; b++) { */
+            /*     td->bodies[b] = *bodies[b]; */
+            /* } */
             /* if(pthread_create(&pth[chunk_i * SQRTNT + chunk_j], NULL, forwardTriangleChunk, td)) { */
             /*     free(td); */
             /*     //goto error_handler; */
@@ -112,8 +110,8 @@ void forwardVelocityThreads(struct Body *bodies[], unsigned long nbodies) {
     }
 }
 
-void forwardPosition(struct Body *bodies[], unsigned long nbodies) {
-    for (unsigned long i = 0; i < nbodies; i++) {
+void forwardPosition(struct Body *bodies[]) {
+    for (unsigned long i = 0; i < NBODIES; i++) {
         *bodies[i]->x += DT * (*bodies[i]->vx);
         *bodies[i]->y += DT * (*bodies[i]->vy);
         *bodies[i]->z += DT * (*bodies[i]->vz);
@@ -125,20 +123,20 @@ static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
         return NULL;
     }
     PyArrayObject *space_arr = (PyArrayObject *) PyArray_ContiguousFromObject(init_space, NPY_DOUBLE, 0, 0);
-    unsigned long nbodies = PyArray_DIMS(space_arr)[0];
-    struct Body *bodies[nbodies];
-    setSpace(bodies, space_arr, nbodies);
+    NBODIES = PyArray_DIMS(space_arr)[0];
+    struct Body *bodies[NBODIES];
+    setSpace(bodies, space_arr);
     FILE *f = fopen("result.data", "w");
     fclose(f);
     double total_time = 0;
     for (unsigned long i = 0; i < NSTEPS; i++) {
         clock_t t = clock();
-        forwardVelocityThreads(bodies, nbodies);
-        forwardPosition(bodies, nbodies);
+        forwardVelocityThreads(bodies);
+        forwardPosition(bodies);
         total_time += (double)(clock() - t);
         if (i % WRITE_INTERVAL == 0) {
             printf("%ld\r", i + 1);
-            writeSpace(bodies, nbodies);
+            writeSpace(bodies);
         }
     }
     printf("\nC: %f seconds to execute\n", total_time / CLOCKS_PER_SEC);
