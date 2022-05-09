@@ -22,6 +22,14 @@ struct Config {
     double* SOFTENING;
 } config;
 
+typedef struct ThreadData {
+    int chunk_i;
+    int chunk_j;
+    unsigned long chunk_size;
+    struct Body* bodies[];
+    struct Config* config;
+} ThreadData;
+
 void setSpace(struct Body *bodies[], PyArrayObject *space_arr, unsigned long nbodies){
     for (unsigned long i=0;i<nbodies;i++){
         bodies[i] = (struct Body*)malloc(sizeof(struct Body));
@@ -70,15 +78,15 @@ void forwardGravitation(struct Body *a, struct Body *b, double G, double DT, dou
     *b->vz = (*b->vz + h * (*a->z - *b->z)) * DAMPING;
 }
 
-void forwardVelocity(struct Body *bodies[], unsigned long nbodies, double G, double DT, double DAMPING, double SOFTENING) {
-    for (unsigned long i = 0; i < nbodies; i++) {
+void forwardVelocity(struct Body *bodies[], struct Config* config) {
+    for (unsigned long i = 0; i < config->nbodies; i++) {
         for (unsigned long j = 0; j < i; j++) {
-            forwardGravitation(bodies[i], bodies[j], G, DT, DAMPING, SOFTENING);
+            forwardGravitation(bodies[i], bodies[j], config);
         }
     }
 }
 
-void forwardTriangleStep(unsigned long i, unsigned long j, struct Body *bodies[], unsigned long nbodies, double G, double DT, double DAMPING, double SOFTENING) {
+void forwardTriangleStep(unsigned long i, unsigned long j, struct Body *bodies[], struct Config* config) {
     /* Takes i,j in [0, nbodies/2], perform two steps of the triangular matrix */
     unsigned long ii = nbodies / 2 + i;
     unsigned long jj = nbodies / 2 + j;
@@ -89,8 +97,7 @@ void forwardTriangleStep(unsigned long i, unsigned long j, struct Body *bodies[]
         forwardGravitation(bodies[ii], bodies[jj], G, DT, DAMPING, SOFTENING);
     }
 }
-
-void forwardTriangleChunk(int chunk_i, int chunk_j, unsigned long chunk_size, struct Body *bodies[], unsigned long nbodies, double G, double DT, double DAMPING, double SOFTENING) {
+void forwardTriangleChunk(struct ThreadData* thread_data) {
     for (unsigned long i = chunk_i * chunk_size; i < (chunk_i + 1) * chunk_size; i++) {
         for (unsigned long j = chunk_j * chunk_size; j < (chunk_j + 1) * chunk_size; j++) {
             forwardTriangleStep(i, j, bodies, nbodies, G, DT, DAMPING, SOFTENING);
@@ -98,11 +105,22 @@ void forwardTriangleChunk(int chunk_i, int chunk_j, unsigned long chunk_size, st
     }
 }
 
-void forwardVelocityThreads(struct Body *bodies[], struct Config *config) {
+void forwardVelocityThreads(struct Body *bodies[], struct Config *config, int SQRTNT) {
     unsigned long chunk_size = nbodies / 2 / SQRTNT;
+    pthread_t pth[SQRTNT * SQRTNT];
     for (int chunk_i = 0; chunk_i < SQRTNT; chunk_i++){
         for (int chunk_j = 0; chunk_j < SQRTNT; chunk_j++) {
-            forwardTriangleChunk(chunk_i, chunk_j, chunk_size, bodies, nbodies, G, DT, DAMPING, SOFTENING);
+            ThreadData* thread_data = malloc(sizeof *args);
+            thread_data->chunk_i = &chunk_i;
+            thread_data->chunk_j = &chunk_j;
+            thread_data->chunk_size = &chunk_size;
+            thread_data->bodies = bodies;
+            thread_data->config = config;
+            if(pthread_create(&pth[i * SQRTNT + j], NULL, forwardTriangleChunk, thread_data)) {
+                free(thread_data);
+                //goto error_handler;
+            }
+            forwardTriangleChunk(chunk_i, chunk_j, chunk_size, bodies, config);
         }
     }
 }
@@ -126,8 +144,8 @@ static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
     double total_time = 0;
     for (unsigned long i = 0; i < NSTEPS; i++) {
         clock_t t = clock();
-        forwardVelocityThreads(bodies, nbodies, G, DT, DAMPING, SOFTENING, SQRTNT);
-        forwardPosition(bodies, nbodies, DT);
+        forwardVelocityThreads(bodies, config, SQRTNT);
+        forwardPosition(bodies, config->nbodies, config->DT);
         total_time += (double)(clock() - t);
         if (i % WRITE_INTERVAL == 0) {
             printf("%ld\r", i + 1);
