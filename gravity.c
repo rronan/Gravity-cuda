@@ -16,15 +16,15 @@ struct Body {
     double* vz;
 };
 
-PyObject* init_space;
-
-typedef struct ThreadData {
+struct ThreadData {
     int chunk_i;
     int chunk_j;
     unsigned long chunk_size;
     unsigned long nbodies;
-    struct Body* bodies[];
-} ThreadData;
+    struct Body* bodies;
+};
+
+PyObject* init_space;
 
 void setSpace(struct Body *bodies[], PyArrayObject *space_arr, unsigned long nbodies){
     for (unsigned long i=0;i<nbodies;i++){
@@ -80,28 +80,34 @@ void forwardTriangleStep(unsigned long i, unsigned long j, struct Body *bodies[]
         forwardGravitation(bodies[ii], bodies[jj]);
     }
 }
+
 void forwardTriangleChunk(struct ThreadData* td) {
     for (unsigned long i = td->chunk_i * td->chunk_size; i < (td->chunk_i + 1) * td->chunk_size; i++) {
         for (unsigned long j = td->chunk_j * td->chunk_size; j < (td->chunk_j + 1) * td->chunk_size; j++) {
-            forwardTriangleStep(i, j, td->bodies, td->nbodies);
+            forwardTriangleStep(i, j, &td->bodies, td->nbodies);
         }
     }
 }
+
 
 void forwardVelocityThreads(struct Body *bodies[], unsigned long nbodies) {
     unsigned long chunk_size = nbodies / 2 / SQRTNT;
     pthread_t pth[SQRTNT * SQRTNT];
     for (int chunk_i = 0; chunk_i < SQRTNT; chunk_i++){
         for (int chunk_j = 0; chunk_j < SQRTNT; chunk_j++) {
-            ThreadData* td = malloc(sizeof *td);
+            struct ThreadData* td;
             td->chunk_i = chunk_i;
             td->chunk_j = chunk_j;
             td->chunk_size = chunk_size;
-            td->bodies = bodies;
-            if(pthread_create(&pth[chunk_i * SQRTNT + chunk_j], NULL, forwardTriangleChunk, td)) {
-                free(td);
-                //goto error_handler;
+            td->bodies = (struct Body*) malloc( sizeof(struct Body*) * nbodies);
+            for (unsigned b = 0; b < nbodies; b++) {
+                td->bodies[b] = *bodies[b];
             }
+            forwardTriangleChunk(td);
+            /* if(pthread_create(&pth[chunk_i * SQRTNT + chunk_j], NULL, forwardTriangleChunk, td)) { */
+            /*     free(td); */
+            /*     //goto error_handler; */
+            /* } */
         }
     }
 }
