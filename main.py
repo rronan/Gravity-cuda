@@ -6,16 +6,17 @@ import numpy as np
 
 from display3d import Display3d
 
-NSTEPS = 50000
-NBODIES = 2500
+NSTEPS = 100000
+NBODIES = 20
 R = 10
-V = 600
+V = 20
 G = 2e3
 DT = 1e-4
 # DAMPING = 1 - 1e-8
 DAMPING = 1
 SOFTENING = 0.01
 WRITE_INTERVAL = 10
+SQRTNT = 2
 
 
 def get_sphere():
@@ -57,7 +58,7 @@ if len(sys.argv) > 1:
     trajectories = parse_results(sys.argv[1])
 else:
     space = get_space()
-    _gravity.run(space, NSTEPS, G, DT, DAMPING, SOFTENING, WRITE_INTERVAL)
+    _gravity.run(space, NSTEPS, G, DT, DAMPING, SOFTENING, WRITE_INTERVAL, SQRTNT)
     trajectories = parse_results()
-app = Display3d(trajectories, camera_position=[0, R * 40, 0], object_scale=1.5)
+app = Display3d(trajectories, camera_position=[0, R + V, 0], object_scale=1.5)
 app.run()

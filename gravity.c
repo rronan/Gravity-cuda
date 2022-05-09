@@ -12,6 +12,16 @@ struct Body {
     double* vz;
 };
 
+PyObject* init_space;
+
+struct Config {
+    unsigned long* nbodies;
+    double* G;
+    double* DT;
+    double* DAMPING;
+    double* SOFTENING;
+} config;
+
 void setSpace(struct Body *bodies[], PyArrayObject *space_arr, unsigned long nbodies){
     for (unsigned long i=0;i<nbodies;i++){
         bodies[i] = (struct Body*)malloc(sizeof(struct Body));
@@ -22,6 +32,19 @@ void setSpace(struct Body *bodies[], PyArrayObject *space_arr, unsigned long nbo
         bodies[i]->vy = (double*)PyArray_GETPTR3(space_arr,i,1,1);
         bodies[i]->vz = (double*)PyArray_GETPTR3(space_arr,i,2,1);
     }
+}
+
+void parseArgs(unsigned long nbodies, double G, double DT, double DAMPING, double SOFTENING, int SQRTNT){
+    unsigned long NSTEPS, WRITE_INTERVAL;
+    double G, DT, DAMPING, SOFTENING;
+    int SQRTNT;
+    if (!PyArg_ParseTuple(args, "Olddddli", &init_space, &NSTEPS, &G, &DT, &DAMPING, &SOFTENING, &WRITE_INTERVAL, &SQRTNT)) {
+        return NULL;
+    }
+    config->G = double* G;
+    config->DT = double* DT;
+    config->DAMPING = double* DAMPING;
+    config->SOFTENING = double* SOFTENING;
 }
 
 void writeSpace(struct Body *bodies[], unsigned long nbodies){
@@ -47,11 +70,45 @@ void forwardGravitation(struct Body *a, struct Body *b, double G, double DT, dou
     *b->vz = (*b->vz + h * (*a->z - *b->z)) * DAMPING;
 }
 
-void forwardPhysics(struct Body *bodies[], unsigned long nbodies, double G, double DT, double DAMPING, double SOFTENING) {
+void forwardVelocity(struct Body *bodies[], unsigned long nbodies, double G, double DT, double DAMPING, double SOFTENING) {
     for (unsigned long i = 0; i < nbodies; i++) {
         for (unsigned long j = 0; j < i; j++) {
             forwardGravitation(bodies[i], bodies[j], G, DT, DAMPING, SOFTENING);
         }
+    }
+}
+
+void forwardTriangleStep(unsigned long i, unsigned long j, struct Body *bodies[], unsigned long nbodies, double G, double DT, double DAMPING, double SOFTENING) {
+    /* Takes i,j in [0, nbodies/2], perform two steps of the triangular matrix */
+    unsigned long ii = nbodies / 2 + i;
+    unsigned long jj = nbodies / 2 + j;
+    forwardGravitation(bodies[ii], bodies[j], G, DT, DAMPING, SOFTENING);
+    if (i < j) {
+        forwardGravitation(bodies[i], bodies[j], G, DT, DAMPING, SOFTENING);
+    } else {
+        forwardGravitation(bodies[ii], bodies[jj], G, DT, DAMPING, SOFTENING);
+    }
+}
+
+void forwardTriangleChunk(int chunk_i, int chunk_j, unsigned long chunk_size, struct Body *bodies[], unsigned long nbodies, double G, double DT, double DAMPING, double SOFTENING) {
+    for (unsigned long i = chunk_i * chunk_size; i < (chunk_i + 1) * chunk_size; i++) {
+        for (unsigned long j = chunk_j * chunk_size; j < (chunk_j + 1) * chunk_size; j++) {
+            forwardTriangleStep(i, j, bodies, nbodies, G, DT, DAMPING, SOFTENING);
+        }
+    }
+}
+
+void forwardVelocityThreads(struct Body *bodies[], struct Config *config) {
+    unsigned long chunk_size = nbodies / 2 / SQRTNT;
+    for (int chunk_i = 0; chunk_i < SQRTNT; chunk_i++){
+        for (int chunk_j = 0; chunk_j < SQRTNT; chunk_j++) {
+            forwardTriangleChunk(chunk_i, chunk_j, chunk_size, bodies, nbodies, G, DT, DAMPING, SOFTENING);
+        }
+    }
+}
+
+void forwardPosition(struct Body *bodies[], unsigned long nbodies, double DT) {
+    for (unsigned long i = 0; i < nbodies; i++) {
         *bodies[i]->x += DT * (*bodies[i]->vx);
         *bodies[i]->y += DT * (*bodies[i]->vy);
         *bodies[i]->z += DT * (*bodies[i]->vz);
@@ -59,41 +116,30 @@ void forwardPhysics(struct Body *bodies[], unsigned long nbodies, double G, doub
 }
 
 static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
-    PyObject *space_object;
-    unsigned long NSTEPS, WRITE_INTERVAL;
-    double G, DT, DAMPING, SOFTENING;
-    if (!PyArg_ParseTuple(args, "Olddddl", &space_object, &NSTEPS, &G, &DT, &DAMPING, &SOFTENING, &WRITE_INTERVAL)) return NULL;
-    PyArrayObject *space_arr = (PyArrayObject *) PyArray_ContiguousFromObject(space_object, NPY_DOUBLE, 0, 0);
-    unsigned long nbodies = PyArray_DIMS(space_arr)[0];
+    parseArgs(args)
+    PyArrayObject *space_arr = (PyArrayObject *) PyArray_ContiguousFromObject(init_space, NPY_DOUBLE, 0, 0);
+    config->nbodies = PyArray_DIMS(space_arr)[0];
     struct Body *bodies[nbodies];
     setSpace(bodies, space_arr, nbodies);
     FILE *f = fopen("result.data", "w");
     fclose(f);
-    clock_t t = clock();
+    double total_time = 0;
     for (unsigned long i = 0; i < NSTEPS; i++) {
-        forwardPhysics(bodies, nbodies, G, DT, DAMPING, SOFTENING);
+        clock_t t = clock();
+        forwardVelocityThreads(bodies, nbodies, G, DT, DAMPING, SOFTENING, SQRTNT);
+        forwardPosition(bodies, nbodies, DT);
+        total_time += (double)(clock() - t);
         if (i % WRITE_INTERVAL == 0) {
             printf("%ld\r", i + 1);
             writeSpace(bodies, nbodies);
         }
     }
-    printf("\n");
-    t = clock() - t;
-    double dt = ((double)t)/CLOCKS_PER_SEC;
-    printf("C: %f seconds to execute\n", dt);
+    printf("\nC: %f seconds to execute\n", total_time / CLOCKS_PER_SEC);
     return Py_None;
 }
 
 static PyMethodDef module_methods[] = {{"run", run, METH_VARARGS, NULL}, {0, 0}};
 
-static struct PyModuleDef gravity = {
-    PyModuleDef_HEAD_INIT,
-    .m_name = "_gravity",
-    .m_methods = module_methods
-};
+static struct PyModuleDef gravity = { PyModuleDef_HEAD_INIT, .m_name = "_gravity", .m_methods = module_methods };
 
-PyMODINIT_FUNC PyInit__gravity(void) {
-    Py_Initialize();
-    import_array();
-    return PyModule_Create(&gravity);
-}
+PyMODINIT_FUNC PyInit__gravity(void) { Py_Initialize(); import_array(); return PyModule_Create(&gravity); }
