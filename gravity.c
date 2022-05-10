@@ -85,11 +85,9 @@ void forwardTriangleStep(unsigned long i, unsigned long j, struct Body *bodies[]
 
 void *forwardTriangleChunk(void* vtd) {
     struct tData* td=(struct tData*) vtd;
-    unsigned long c = 0;
     for (unsigned long i = 0; i < td->chunk_size; i++) {
         for (unsigned long j = 0; j < NBODIES / 2; j++) {
             forwardTriangleStep(td->chunk_i * td->chunk_size + i, j, td->bodies);
-            c += 2;
         }
     }
     return NULL;
