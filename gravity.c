@@ -6,7 +6,9 @@
 unsigned long NSTEPS, WRITE_INTERVAL, NBODIES;
 double G, DT, DAMPING, SOFTENING;
 int USE_THREADS;
-int SQRTNT;
+int NTHREADS;
+
+unsigned long COUNTER=0;
 
 struct Body {
     double* x;
@@ -19,7 +21,6 @@ struct Body {
 
 struct tData {
     int chunk_i;
-    int chunk_j;
     unsigned long chunk_size;
     struct Body** bodies;
 };
@@ -48,6 +49,7 @@ void writeSpace(struct Body *bodies[]){
 }
 
 void forwardGravitation(struct Body *a, struct Body *b) {
+    COUNTER += 1;
     double px = pow(*a->x - *b->x, 2);
     double py = pow(*a->y - *b->y, 2);
     double pz = pow(*a->z - *b->z, 2);
@@ -83,9 +85,11 @@ void forwardTriangleStep(unsigned long i, unsigned long j, struct Body *bodies[]
 
 void *forwardTriangleChunk(void* vtd) {
     struct tData* td=(struct tData*) vtd;
-    for (unsigned long i = td->chunk_i * td->chunk_size; i < (td->chunk_i + 1) * td->chunk_size; i++) {
-        for (unsigned long j = td->chunk_j * td->chunk_size; j < (td->chunk_j + 1) * td->chunk_size; j++) {
-            forwardTriangleStep(i, j, td->bodies);
+    unsigned long c = 0;
+    for (unsigned long i = 0; i < td->chunk_size; i++) {
+        for (unsigned long j = 0; j < NBODIES / 2; j++) {
+            forwardTriangleStep(td->chunk_i * td->chunk_size + i, j, td->bodies);
+            c += 2;
         }
     }
     return NULL;
@@ -93,26 +97,20 @@ void *forwardTriangleChunk(void* vtd) {
 
 
 void forwardVelocityThreads(struct Body *bodies[]) {
-    unsigned long chunk_size = NBODIES / 2 / SQRTNT;
-    pthread_t pth[SQRTNT * SQRTNT];
-    for (int chunk_i = 0; chunk_i < SQRTNT; chunk_i++){
-        for (int chunk_j = 0; chunk_j < SQRTNT; chunk_j++) {
-            struct tData td;
-            td.chunk_i = chunk_i;
-            td.chunk_j = chunk_j;
-            td.chunk_size = chunk_size;
-            td.bodies = bodies;
-            forwardTriangleChunk(&td);
-            if (pthread_create(&pth[chunk_i * SQRTNT + chunk_j], NULL, forwardTriangleChunk, &td)) {
-                printf("Alert! Error creating thread! Exiting Now!");
-                exit(-1);
-            }
+    unsigned long chunk_size = NBODIES / 2 / NTHREADS;
+    pthread_t pth[NTHREADS];
+    for (int chunk_i = 0; chunk_i < NTHREADS; chunk_i++){
+        struct tData td;
+        td.chunk_i = chunk_i;
+        td.chunk_size = chunk_size;
+        td.bodies = bodies;
+        if (pthread_create(&pth[chunk_i], NULL, forwardTriangleChunk, &td)) {
+            printf("Alert! Error creating thread! Exiting Now!");
+            exit(-1);
         }
     }
-    for (int chunk_i = 0; chunk_i < SQRTNT; chunk_i++){
-        for (int chunk_j = 0; chunk_j < SQRTNT; chunk_j++) {
-            pthread_join(pth[chunk_i * SQRTNT + chunk_j], NULL);
-        }
+    for (int chunk_i = 0; chunk_i < NTHREADS; chunk_i++){
+        pthread_join(pth[chunk_i], NULL);
     }
 }
 
@@ -125,7 +123,7 @@ void forwardPosition(struct Body *bodies[]) {
 }
 
 static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
-    if (!PyArg_ParseTuple(args, "Olddddlii", &init_space, &NSTEPS, &G, &DT, &DAMPING, &SOFTENING, &WRITE_INTERVAL, &USE_THREADS, &SQRTNT)) {
+    if (!PyArg_ParseTuple(args, "Olddddlii", &init_space, &NSTEPS, &G, &DT, &DAMPING, &SOFTENING, &WRITE_INTERVAL, &USE_THREADS, &NTHREADS)) {
         return NULL;
     }
     printf("Use thread yes/no: %d\n", USE_THREADS);
@@ -150,7 +148,8 @@ static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
             writeSpace(bodies);
         }
     }
-    printf("\nC: %f seconds to execute\n", total_time / CLOCKS_PER_SEC);
+    printf("\nC: %ld Number of forwardGravitation()\n", COUNTER);
+    printf("C: %f seconds to execute\n", total_time / CLOCKS_PER_SEC);
     return Py_None;
 }
 

@@ -7,7 +7,7 @@ import numpy as np
 from display3d import Display3d
 
 NSTEPS = 1
-NBODIES = 30000
+NBODIES = 20000
 R = 10
 V = 20
 G = 2e3
@@ -17,12 +17,12 @@ DAMPING = 1
 SOFTENING = 0.01
 WRITE_INTERVAL = 10
 USE_THREADS = 1
-SQRTNT = 3
+NTHREADS = 4
 
 n = 0
-while n * (SQRTNT**2) * 2 < NBODIES:
+while n * NTHREADS * 2 < NBODIES:
     n += 1
-NBODIES = n * (SQRTNT**2) * 2
+NBODIES = n * NTHREADS * 2
 print("Setting NBODIES to:", NBODIES)
 
 
@@ -66,7 +66,7 @@ if len(sys.argv) > 1:
 else:
     space = get_space()
     _gravity.run(
-        space, NSTEPS, G, DT, DAMPING, SOFTENING, WRITE_INTERVAL, USE_THREADS, SQRTNT
+        space, NSTEPS, G, DT, DAMPING, SOFTENING, WRITE_INTERVAL, USE_THREADS, NTHREADS
     )
     # trajectories = parse_results()
 # app = Display3d(trajectories, camera_position=[0, R + V, 0], object_scale=1.5)
