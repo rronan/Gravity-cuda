@@ -6,8 +6,8 @@ import numpy as np
 import gravity
 from display3d import Display3d
 
-NSTEPS = 100000
-NBODIES = 400
+NSTEPS = 1
+NBODIES = 40
 R = 10
 V = 20
 G = 2e3
@@ -16,7 +16,7 @@ DT = 1e-4
 DAMPING = 1
 SOFTENING = 0.01
 WRITE_INTERVAL = 10
-USE_THREADS = 0
+USE_THREADS = 1
 NTHREADS = 4
 
 n = 0

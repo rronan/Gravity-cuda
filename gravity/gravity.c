@@ -23,6 +23,7 @@ struct tData {
     int chunk_i;
     unsigned long chunk_size;
     struct Body** bodies;
+    double*** dv;
 };
 
 PyObject* init_space;
@@ -48,6 +49,7 @@ void writeSpace(struct Body *bodies[]){
     fclose(f);
 }
 
+
 void forwardGravitation(struct Body *a, struct Body *b) {
     COUNTER += 1;
     double px = pow(*a->x - *b->x, 2);
@@ -71,15 +73,33 @@ void forwardVelocity(struct Body *bodies[]) {
     }
 }
 
-void forwardTriangleStep(unsigned long i, unsigned long j, struct Body *bodies[]) {
+
+void forwardGravitationMemory(unsigned long i, unsigned long j, struct Body *bodies[], double ***dv) {
+    COUNTER += 1;
+    struct Body* a = bodies[i];
+    struct Body* b = bodies[j];
+    double px = pow(*a->x - *b->x, 2);
+    double py = pow(*a->y - *b->y, 2);
+    double pz = pow(*a->z - *b->z, 2);
+    double r = pow(px + py + pz + SOFTENING, .5);
+    double h = DT * G / (r * r * r);
+    dv[i][j][0] = (*a->vx + h * (*b->x - *a->x)) * DAMPING;
+    dv[i][j][1] = (*a->vy + h * (*b->y - *a->y)) * DAMPING;
+    dv[i][j][2] = (*a->vz + h * (*b->z - *a->z)) * DAMPING;
+    dv[j][i][0] = (*b->vx + h * (*a->x - *b->x)) * DAMPING;
+    dv[j][i][1] = (*b->vy + h * (*a->y - *b->y)) * DAMPING;
+    dv[j][i][2] = (*b->vz + h * (*a->z - *b->z)) * DAMPING;
+}
+
+void forwardTriangleStep(unsigned long i, unsigned long j, struct Body *bodies[], double ***dv) {
     /* Takes i,j in [0, NBODIES/2], perform two steps of the triangular matrix */
     unsigned long ii = NBODIES / 2 + i;
     unsigned long jj = NBODIES / 2 + j;
-    forwardGravitation(bodies[ii], bodies[j]);
+    forwardGravitationMemory(ii, j, bodies, dv);
     if (i < j) {
-        forwardGravitation(bodies[i], bodies[j]);
+        forwardGravitationMemory(i, j, bodies, dv);
     } else {
-        forwardGravitation(bodies[ii], bodies[jj]);
+        forwardGravitationMemory(ii, jj, bodies, dv);
     }
 }
 
@@ -87,22 +107,47 @@ void *forwardTriangleChunk(void* vtd) {
     struct tData* td=(struct tData*) vtd;
     for (unsigned long i = 0; i < td->chunk_size; i++) {
         for (unsigned long j = 0; j < NBODIES / 2; j++) {
-            forwardTriangleStep(td->chunk_i * td->chunk_size + i, j, td->bodies);
+            forwardTriangleStep(td->chunk_i * td->chunk_size + i, j, td->bodies, td->dv);
+        }
+    }
+    return NULL;
+}
+
+void *sumAccelerations(void* vtd) {
+    struct tData* td=(struct tData*) vtd;
+    for (unsigned long i = 0; i < td->chunk_size; i++) {
+        for (unsigned long j = 0; j < NBODIES; j++) {
+            *td->bodies[i]->vx += td->dv[i][j][0];
+            *td->bodies[i]->vy += td->dv[i][j][1];
+            *td->bodies[i]->vz += td->dv[i][j][2];
         }
     }
     return NULL;
 }
 
 
-void forwardVelocityThreads(struct Body *bodies[]) {
+void forwardVelocityThreads(struct Body *bodies[], double ***dv) {
     unsigned long chunk_size = NBODIES / 2 / NTHREADS;
     pthread_t pth[NTHREADS];
+    struct tData td;
+    td.bodies = bodies;
+    td.dv = dv;
+    for (int chunk_i = 0; chunk_i < NTHREADS; chunk_i++){
+        td.chunk_i = chunk_i;
+        td.chunk_size = chunk_size;
+        if (pthread_create(&pth[chunk_i], NULL, forwardTriangleChunk, &td)) {
+            printf("Alert! Error creating thread! Exiting Now!");
+            exit(-1);
+        }
+    }
+    for (int chunk_i = 0; chunk_i < NTHREADS; chunk_i++){
+        pthread_join(pth[chunk_i], NULL);
+    }
     for (int chunk_i = 0; chunk_i < NTHREADS; chunk_i++){
         struct tData td;
         td.chunk_i = chunk_i;
         td.chunk_size = chunk_size;
-        td.bodies = bodies;
-        if (pthread_create(&pth[chunk_i], NULL, forwardTriangleChunk, &td)) {
+        if (pthread_create(&pth[chunk_i], NULL, sumAccelerations, &td)) {
             printf("Alert! Error creating thread! Exiting Now!");
             exit(-1);
         }
@@ -129,6 +174,15 @@ static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
     NBODIES = PyArray_DIMS(space_arr)[0];
     struct Body *bodies[NBODIES];
     setSpace(bodies, space_arr);
+    double **dv[NBODIES];
+    for (unsigned long i = 0; i < NSTEPS; i++) {
+        double *dv_[3];
+        for (unsigned long j = 0; j < NSTEPS; i++) {
+            double dv__[3] = {0, 0, 0};
+            dv_[j] = dv__;
+        }
+        dv[i] = dv_;
+    }
     FILE *f = fopen("result.data", "w");
     fclose(f);
     double total_time = 0;
@@ -137,7 +191,7 @@ static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
         if (USE_THREADS == 0) {
             forwardVelocity(bodies);
         } else {
-            forwardVelocityThreads(bodies);
+            forwardVelocityThreads(bodies, dv);
         }
         forwardPosition(bodies);
         total_time += (double)(clock() - t);
