@@ -101,7 +101,8 @@ void forwardVelocityThreads(struct Body *bodies[]) {
             td.chunk_j = chunk_j;
             td.chunk_size = chunk_size;
             td.bodies = bodies;
-            pthread_create(&pth[chunk_i * SQRTNT + chunk_j], NULL, forwardTriangleChunk, &td);
+            forwardTriangleChunk(&td);
+            /* pthread_create(&pth[chunk_i * SQRTNT + chunk_j], NULL, forwardTriangleChunk, &td); */
             /* pthread_detach(pth[chunk_i * SQRTNT + chunk_j]); */
         }
     }
