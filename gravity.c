@@ -5,6 +5,7 @@
 
 unsigned long NSTEPS, WRITE_INTERVAL, NBODIES;
 double G, DT, DAMPING, SOFTENING;
+int USE_THREADS;
 int SQRTNT;
 
 struct Body {
@@ -102,8 +103,15 @@ void forwardVelocityThreads(struct Body *bodies[]) {
             td.chunk_size = chunk_size;
             td.bodies = bodies;
             forwardTriangleChunk(&td);
-            /* pthread_create(&pth[chunk_i * SQRTNT + chunk_j], NULL, forwardTriangleChunk, &td); */
-            /* pthread_detach(pth[chunk_i * SQRTNT + chunk_j]); */
+            if (pthread_create(&pth[chunk_i * SQRTNT + chunk_j], NULL, forwardTriangleChunk, &td)) {
+                printf("Alert! Error creating thread! Exiting Now!");
+                exit(-1);
+            }
+        }
+    }
+    for (int chunk_i = 0; chunk_i < SQRTNT; chunk_i++){
+        for (int chunk_j = 0; chunk_j < SQRTNT; chunk_j++) {
+            pthread_join(pth[chunk_i * SQRTNT + chunk_j], NULL);
         }
     }
 }
@@ -117,9 +125,10 @@ void forwardPosition(struct Body *bodies[]) {
 }
 
 static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
-    if (!PyArg_ParseTuple(args, "Olddddli", &init_space, &NSTEPS, &G, &DT, &DAMPING, &SOFTENING, &WRITE_INTERVAL, &SQRTNT)) {
+    if (!PyArg_ParseTuple(args, "Olddddlii", &init_space, &NSTEPS, &G, &DT, &DAMPING, &SOFTENING, &WRITE_INTERVAL, &USE_THREADS, &SQRTNT)) {
         return NULL;
     }
+    printf("Use thread yes/no: %d\n", USE_THREADS);
     PyArrayObject *space_arr = (PyArrayObject *) PyArray_ContiguousFromObject(init_space, NPY_DOUBLE, 0, 0);
     NBODIES = PyArray_DIMS(space_arr)[0];
     struct Body *bodies[NBODIES];
@@ -129,11 +138,15 @@ static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
     double total_time = 0;
     for (unsigned long i = 0; i < NSTEPS; i++) {
         clock_t t = clock();
-        forwardVelocityThreads(bodies);
+        if (USE_THREADS == 0) {
+            forwardVelocity(bodies);
+        } else {
+            forwardVelocityThreads(bodies);
+        }
         forwardPosition(bodies);
         total_time += (double)(clock() - t);
         if (i % WRITE_INTERVAL == 0) {
-            printf("%ld\r", i + 1);
+            printf("%ld\r", i);
             writeSpace(bodies);
         }
     }
