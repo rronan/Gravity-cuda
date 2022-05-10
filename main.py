@@ -1,9 +1,9 @@
 import sys
 from math import pi
 
-import _gravity
 import numpy as np
 
+import gravity
 from display3d import Display3d
 
 NSTEPS = 100000
@@ -65,7 +65,7 @@ if len(sys.argv) > 1:
     trajectories = parse_results(sys.argv[1])
 else:
     space = get_space()
-    _gravity.run(
+    gravity.run(
         space, NSTEPS, G, DT, DAMPING, SOFTENING, WRITE_INTERVAL, USE_THREADS, NTHREADS
     )
     trajectories = parse_results()
