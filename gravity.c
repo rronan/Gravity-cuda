@@ -16,11 +16,12 @@ struct Body {
     double* vz;
 };
 
-typedef struct ThreadData {
+struct tData {
     int chunk_i;
     int chunk_j;
     unsigned long chunk_size;
-} ThreadData;
+    struct Body** bodies;
+};
 
 PyObject* init_space;
 
@@ -79,33 +80,29 @@ void forwardTriangleStep(unsigned long i, unsigned long j, struct Body *bodies[]
     }
 }
 
-void forwardTriangleChunk(struct Body* bodies[], ThreadData td) {
-    for (unsigned long i = td.chunk_i * td.chunk_size; i < (td.chunk_i + 1) * td.chunk_size; i++) {
-        for (unsigned long j = td.chunk_j * td.chunk_size; j < (td.chunk_j + 1) * td.chunk_size; j++) {
-            forwardTriangleStep(i, j, bodies);
+void *forwardTriangleChunk(void* vtd) {
+    struct tData* td=(struct tData*) vtd;
+    for (unsigned long i = td->chunk_i * td->chunk_size; i < (td->chunk_i + 1) * td->chunk_size; i++) {
+        for (unsigned long j = td->chunk_j * td->chunk_size; j < (td->chunk_j + 1) * td->chunk_size; j++) {
+            forwardTriangleStep(i, j, td->bodies);
         }
     }
+    return NULL;
 }
 
 
 void forwardVelocityThreads(struct Body *bodies[]) {
     unsigned long chunk_size = NBODIES / 2 / SQRTNT;
-    /* pthread_t pth[SQRTNT * SQRTNT]; */
+    pthread_t pth[SQRTNT * SQRTNT];
     for (int chunk_i = 0; chunk_i < SQRTNT; chunk_i++){
         for (int chunk_j = 0; chunk_j < SQRTNT; chunk_j++) {
-            ThreadData td = { .chunk_i = chunk_i, .chunk_j = chunk_j, .chunk_size = chunk_size };
-            forwardTriangleChunk(bodies, td);
-            /* td->chunk_i = chunk_i; */
-            /* td->chunk_j = chunk_j; */
-            /* td->chunk_size = chunk_size; */
-            /* td->bodies = (struct Body*) malloc( sizeof(struct Body*) * NBODIES); */
-            /* for (unsigned b = 0; b < NBODIES; b++) { */
-            /*     td->bodies[b] = *bodies[b]; */
-            /* } */
-            /* if(pthread_create(&pth[chunk_i * SQRTNT + chunk_j], NULL, forwardTriangleChunk, td)) { */
-            /*     free(td); */
-            /*     //goto error_handler; */
-            /* } */
+            struct tData td;
+            td.chunk_i = chunk_i;
+            td.chunk_j = chunk_j;
+            td.chunk_size = chunk_size;
+            td.bodies = bodies;
+            pthread_create(&pth[chunk_i * SQRTNT + chunk_j], NULL, forwardTriangleChunk, &td);
+            /* pthread_detach(pth[chunk_i * SQRTNT + chunk_j]); */
         }
     }
 }
