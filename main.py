@@ -1,34 +1,31 @@
-import sys
+from argparse import ArgumentParser
 from math import pi
 
+import _gravity
 import numpy as np
 
-import gravity
 from display3d import Display3d
 
-NSTEPS = 1
-NBODIES = 40
-R = 10
-V = 20
-G = 2e3
-DT = 1e-4
-# DAMPING = 1 - 1e-8
-DAMPING = 1
-SOFTENING = 0.01
-WRITE_INTERVAL = 10
-USE_THREADS = 1
-NTHREADS = 4
 
-n = 0
-while n * NTHREADS * 2 < NBODIES:
-    n += 1
-NBODIES = n * NTHREADS * 2
-print("Setting NBODIES to:", NBODIES)
+def parse_args():
+    parser = ArgumentParser()
+    parser.add_argument("--nsteps", type=int, default=100000)
+    parser.add_argument("--nbodies", type=int, default=1000)
+    parser.add_argument("--r", type=float, default=10)
+    parser.add_argument("--v", type=float, default=300)
+    parser.add_argument("--G", type=float, default=2e3)
+    parser.add_argument("--dt", type=float, default=1e-4)
+    parser.add_argument("--damping", type=float, default=1)
+    parser.add_argument("--softening", type=float, default=0.01)
+    parser.add_argument("--write_interval", type=int, default=10)
+    parser.add_argument("--trajectories", default=None)
+    args = parser.parse_args()
+    return args
 
 
-def get_sphere():
-    theta = np.random.rand(NBODIES) * 2 * pi
-    phi = np.arccos(np.random.rand(NBODIES) * 2 - 1)
+def get_sphere(args):
+    theta = np.random.rand(args.nbodies) * 2 * pi
+    phi = np.arccos(np.random.rand(args.nbodies) * 2 - 1)
     x = np.cos(theta) * np.sin(phi)
     y = np.sin(theta) * np.sin(phi)
     z = np.cos(phi)
@@ -36,11 +33,11 @@ def get_sphere():
     return res
 
 
-def get_space():
-    sphere = get_sphere()
+def get_space(args):
+    sphere = get_sphere(args)
     # comment this to have all stars on the sphere
     # space *= np.random.rand(NBODIES, 1, 2)
-    space = np.stack([sphere * R, sphere * V], 2)
+    space = np.stack([sphere * args.r, sphere * args.v], 2)
     space[:, :, 0] -= space[:, :, 0].mean(0)
     space[:, :, 1] -= space[:, :, 1].mean(0)
     return space
@@ -61,13 +58,26 @@ def parse_results(result_path="result.data"):
     return res
 
 
-if len(sys.argv) > 1:
-    trajectories = parse_results(sys.argv[1])
-else:
-    space = get_space()
-    gravity.run(
-        space, NSTEPS, G, DT, DAMPING, SOFTENING, WRITE_INTERVAL, USE_THREADS, NTHREADS
+def main():
+    args = parse_args()
+    if args.trajectories is not None:
+        trajectories = parse_results(args.trajectories)
+    else:
+        space = get_space(args)
+        _gravity.run(
+            space,
+            args.nsteps,
+            args.G,
+            args.dt,
+            args.damping,
+            args.softening,
+            args.write_interval,
+        )
+        trajectories = parse_results()
+    app = Display3d(
+        trajectories, camera_position=[0, args.r + args.v, 0], object_scale=1.5
     )
-    trajectories = parse_results()
-app = Display3d(trajectories, camera_position=[0, R + V, 0], object_scale=1.5)
-app.run()
+    app.run()
+
+
+main()
