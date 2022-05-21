@@ -20,6 +20,7 @@ def parse_args():
     parser.add_argument("--write_interval", type=int, default=10)
     parser.add_argument("--trajectories", default=None)
     args = parser.parse_args()
+    print(args)
     return args
 
 
