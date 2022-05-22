@@ -17,6 +17,7 @@ def parse_args():
     parser.add_argument("--dt", type=float, default=1e-4)
     parser.add_argument("--damping", type=float, default=1)
     parser.add_argument("--softening", type=float, default=0.01)
+    parser.add_argument("--object_scale", type=float, default=1.5)
     parser.add_argument("--write_interval", type=int, default=10)
     parser.add_argument("--trajectories", default=None)
     args = parser.parse_args()
@@ -76,7 +77,9 @@ def main():
         )
         trajectories = parse_results()
     app = Display3d(
-        trajectories, camera_position=[0, args.r + args.v, 0], object_scale=1.5
+        trajectories,
+        camera_position=[0, args.r + args.v, 0],
+        object_scale=args.object_scale,
     )
     app.run()
 
