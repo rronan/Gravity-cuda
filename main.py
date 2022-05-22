@@ -76,12 +76,15 @@ def main():
             args.write_interval,
         )
         trajectories = parse_results()
-    app = Display3d(
-        trajectories,
-        camera_position=[0, args.r + args.v, 0],
-        object_scale=args.object_scale,
-    )
-    app.run()
+    try:
+        app = Display3d(
+            trajectories,
+            camera_position=[0, args.r + args.v, 0],
+            object_scale=args.object_scale,
+        )
+        app.run()
+    except:
+        pass
 
 
 main()
