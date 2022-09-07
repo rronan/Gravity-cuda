@@ -2,7 +2,6 @@
 #define NPY_NO_DEPRECATED_API NPY_1_8_API_VERSION
 #define PY_ARRAY_UNIQUE_SYMBOL NP_ARRAY_API
 #include <numpy/arrayobject.h>
-#include <omp.h>
 
 unsigned long NSTEPS, WRITE_INTERVAL, NBODIES;
 double G, DT, DAMPING, SOFTENING;
@@ -12,8 +11,6 @@ unsigned long dv_index(unsigned long x, unsigned long y, unsigned long z) {
     unsigned long res =  x * NBODIES * 3 + y * 3 + z;
     return res;
 }
-
-unsigned long COUNTER=0;
 
 struct Body {
     double* x;
@@ -49,7 +46,6 @@ void writeSpace(struct Body* bodies[]){
 
 
 void forwardGravitation(unsigned long i, unsigned long j, struct Body *bodies[], double *dv) {
-    /* COUNTER += 1; */
     struct Body *a = bodies[i];
     struct Body *b = bodies[j];
     double px = pow(*a->x - *b->x, 2);
@@ -124,6 +120,7 @@ static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
     FILE *f = fopen("result.data", "w");
     fclose(f);
     double total_time = 0;
+    time_t t0 = time(NULL);
     for (unsigned long i = 0; i < NSTEPS; i++) {
         clock_t t = clock();
         forwardSquare(bodies, dv);
@@ -134,8 +131,9 @@ static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
             writeSpace(bodies);
         }
     }
-    printf("\nC: %ld Number of forwardGravitation()\n", COUNTER);
-    printf("C: %f seconds to execute\n", total_time / CLOCKS_PER_SEC);
+    time_t t1 = time(NULL);
+    printf("CPU time: %f seconds\n", total_time / CLOCKS_PER_SEC);
+    printf("Total time: %f seconds\n", (float) (time(NULL) - t0));
     free(dv);
     return Py_None;
 }

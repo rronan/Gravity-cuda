@@ -1,9 +1,9 @@
 from argparse import ArgumentParser
 from math import pi
 
-import _gravity
 import numpy as np
 
+import gravity_gpu
 from display3d import Display3d
 
 
@@ -45,7 +45,7 @@ def get_space(args):
     return space
 
 
-def parse_results(result_path="result.data"):
+def parse_results(result_path="trajectories/result.data"):
     with open(result_path, "r") as f:
         text_list = f.readlines()
     space_list = []
@@ -66,7 +66,7 @@ def main():
         trajectories = parse_results(args.trajectories)
     else:
         space = get_space(args)
-        _gravity.run(
+        gravity_gpu.run(
             space,
             args.nsteps,
             args.G,

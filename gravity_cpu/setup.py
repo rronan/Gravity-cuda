@@ -4,7 +4,7 @@ import numpy as np
 
 module = Extension(
     "_gravity",
-    sources=["gravity.c"],
+    sources=["gravity"],
     include_dirs=[np.get_include()],
     extra_compile_args=["-fopenmp"],
     extra_link_args=["-fopenmp"],
