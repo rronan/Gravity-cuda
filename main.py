@@ -3,7 +3,6 @@ from math import pi
 
 import _gravity
 import numpy as np
-
 from display3d import Display3d
 
 
@@ -18,9 +17,12 @@ def parse_args():
     parser.add_argument("--damping", type=float, default=1)
     parser.add_argument("--softening", type=float, default=0.01)
     parser.add_argument("--object_scale", type=float, default=1.5)
+    parser.add_argument("--camera_distance", type=float, default=None)
     parser.add_argument("--write_interval", type=int, default=10)
     parser.add_argument("--trajectories", default=None)
     args = parser.parse_args()
+    if args.camera_distance is None:
+        args.camera_distance = args.r + args.v
     print(args)
     return args
 
@@ -79,7 +81,7 @@ def main():
     try:
         app = Display3d(
             trajectories,
-            camera_position=[0, args.r + args.v, 0],
+            camera_position=[0, args.camera_distance, 0],
             object_scale=args.object_scale,
         )
         app.run()
