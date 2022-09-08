@@ -2,7 +2,6 @@
 #define NPY_NO_DEPRECATED_API NPY_1_8_API_VERSION
 #define PY_ARRAY_UNIQUE_SYMBOL NP_ARRAY_API
 #include <numpy/arrayobject.h>
-#include <omp.h>
 
 unsigned long NSTEPS, WRITE_INTERVAL, NBODIES;
 double G, DT, DAMPING, SOFTENING;
@@ -12,8 +11,6 @@ unsigned long dv_index(unsigned long x, unsigned long y, unsigned long z) {
     unsigned long res =  x * NBODIES * 3 + y * 3 + z;
     return res;
 }
-
-unsigned long COUNTER=0;
 
 struct Body {
     double* x;
@@ -49,7 +46,6 @@ void writeSpace(struct Body* bodies[]){
 
 
 void forwardGravitation(unsigned long i, unsigned long j, struct Body *bodies[], double *dv) {
-    /* COUNTER += 1; */
     struct Body *a = bodies[i];
     struct Body *b = bodies[j];
     double px = pow(*a->x - *b->x, 2);
@@ -113,6 +109,7 @@ void forwardPosition(struct Body *bodies[]) {
 
 
 static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
+    printf("Start gravity_cpu!\n"); fflush(stdout);
     if (!PyArg_ParseTuple(args, "Olddddl", &init_space, &NSTEPS, &G, &DT, &DAMPING, &SOFTENING, &WRITE_INTERVAL)) {
         return NULL;
     }
@@ -124,24 +121,26 @@ static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
     FILE *f = fopen("result.data", "w");
     fclose(f);
     double total_time = 0;
+    time_t t0 = time(NULL);
     for (unsigned long i = 0; i < NSTEPS; i++) {
         clock_t t = clock();
         forwardSquare(bodies, dv);
         forwardPosition(bodies);
         total_time += (double)(clock() - t);
         if (i % WRITE_INTERVAL == 0) {
-            printf("%ld\r", i);
+            printf("%ld\r", i); fflush(stdout);
             writeSpace(bodies);
         }
     }
-    printf("\nC: %ld Number of forwardGravitation()\n", COUNTER);
-    printf("C: %f seconds to execute\n", total_time / CLOCKS_PER_SEC);
+    time_t t1 = time(NULL);
+    printf("CPU time: %f seconds\n", total_time / CLOCKS_PER_SEC);
+    printf("Total time: %f seconds\n", (float) (time(NULL) - t0));
     free(dv);
     return Py_None;
 }
 
 static PyMethodDef module_methods[] = {{"run", run, METH_VARARGS, NULL}, {0, 0}};
 
-static struct PyModuleDef gravity = { PyModuleDef_HEAD_INIT, .m_name = "_gravity", .m_methods = module_methods };
+static struct PyModuleDef gravity_cpu = { PyModuleDef_HEAD_INIT, .m_name = "gravity_cpu", .m_methods = module_methods };
 
-PyMODINIT_FUNC PyInit__gravity(void) { Py_Initialize(); import_array(); return PyModule_Create(&gravity); }
+PyMODINIT_FUNC PyInit_gravity_cpu(void) { Py_Initialize(); import_array(); return PyModule_Create(&gravity_cpu); }

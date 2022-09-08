@@ -1,8 +1,10 @@
 from argparse import ArgumentParser
 from math import pi
 
-import _gravity
 import numpy as np
+
+import gravity_cpu
+import gravity_gpu
 from display3d import Display3d
 
 
@@ -20,6 +22,7 @@ def parse_args():
     parser.add_argument("--camera_distance", type=float, default=None)
     parser.add_argument("--write_interval", type=int, default=10)
     parser.add_argument("--trajectories", default=None)
+    parser.add_argument("--gpu", action="store_true")
     args = parser.parse_args()
     if args.camera_distance is None:
         args.camera_distance = args.r + args.v
@@ -47,7 +50,7 @@ def get_space(args):
     return space
 
 
-def parse_results(result_path="result.data"):
+def parse_results(result_path="trajectories/result.data"):
     with open(result_path, "r") as f:
         text_list = f.readlines()
     space_list = []
@@ -68,15 +71,26 @@ def main():
         trajectories = parse_results(args.trajectories)
     else:
         space = get_space(args)
-        _gravity.run(
-            space,
-            args.nsteps,
-            args.G,
-            args.dt,
-            args.damping,
-            args.softening,
-            args.write_interval,
-        )
+        if args.gpu:
+            gravity_gpu.run(
+                space,
+                args.nsteps,
+                args.G,
+                args.dt,
+                args.damping,
+                args.softening,
+                args.write_interval,
+            )
+        else:
+            gravity_cpu.run(
+                space,
+                args.nsteps,
+                args.G,
+                args.dt,
+                args.damping,
+                args.softening,
+                args.write_interval,
+            )
         trajectories = parse_results()
     try:
         app = Display3d(
