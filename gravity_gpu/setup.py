@@ -9,9 +9,7 @@ from distutils.sysconfig import get_python_inc
 import numpy as np
 from setuptools import Extension, setup
 
-MOD_NAMES = [
-    "gravity_gpu",
-]
+MOD_NAMES = ["gravity_gpu"]
 
 compile_options = {
     "msvc": ["/Ox", "/EHsc"],
@@ -237,9 +235,6 @@ def setup_package():
                         include_dirs=include_dirs + [CUDA["include"]],
                     ),
                 )
-
-        # if not is_source_release(root):
-        #     generate_cython(root, "gravity_gpu")
 
         setup(
             name="gravity_gpu",

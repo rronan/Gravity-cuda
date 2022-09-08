@@ -72,7 +72,8 @@ void forwardPosition(float *p, float *v) {
 }
 
 static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
-    if (!PyArg_ParseTuple(args, "Olddddl", &init_space, &NSTEPS, &G, &DT, &DAMPING, &SOFTENING, &WRITE_INTERVAL)) {
+    printf("Start gravity_gpu!"); fflush(stdout);
+    if (!PyArg_ParseTuple(args, "Oiffffi", &init_space, &NSTEPS, &G, &DT, &DAMPING, &SOFTENING, &WRITE_INTERVAL)) {
         return NULL;
     }
     PyArrayObject *space_arr = (PyArrayObject *) PyArray_ContiguousFromObject(init_space, NPY_DOUBLE, 0, 0);
@@ -90,15 +91,18 @@ static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
     cudaMalloc(&f, 3 * sizeof(float) * N_lt);
     cudaMemcpy(d_p, p, 3 * sizeof(float) * N, cudaMemcpyHostToDevice);
     cudaMemcpy(d_v, v, 3 * sizeof(float) * N, cudaMemcpyHostToDevice);
-    FILE *file = fopen("result.data", "w");
+    FILE *file = fopen("trajectories/result.data", "w");
     fclose(file);
     time_t t0 = time(NULL);
+    printf("NSTEPS: %d\n", NSTEPS); fflush(stdout);
+    printf("N: %d\n", N); fflush(stdout);
+    printf("N_lt: %d\n", N_lt); fflush(stdout);
     for (unsigned long i = 0; i < NSTEPS; i++) {
         forwardGravitation<<<(3*N_lt+255)/256, 256>>>(d_p, f);
         sumAcceleration<<<(3*N+255)/256, 256>>>(d_v, f);
         forwardPosition<<<(3*N+255)/256, 256>>>(d_p, d_v);
         if (i % WRITE_INTERVAL == 0) {
-            printf("%ld\r", i);
+            printf("%ld\r", i); fflush(stdout);
             cudaMemcpy(p, d_p, 3 * sizeof(float) * N, cudaMemcpyDeviceToHost);
             writeSpace(p);
         }

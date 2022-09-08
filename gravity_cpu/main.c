@@ -109,6 +109,7 @@ void forwardPosition(struct Body *bodies[]) {
 
 
 static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
+    printf("Start gravity_cpu!\n"); fflush(stdout);
     if (!PyArg_ParseTuple(args, "Olddddl", &init_space, &NSTEPS, &G, &DT, &DAMPING, &SOFTENING, &WRITE_INTERVAL)) {
         return NULL;
     }
@@ -127,7 +128,7 @@ static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
         forwardPosition(bodies);
         total_time += (double)(clock() - t);
         if (i % WRITE_INTERVAL == 0) {
-            printf("%ld\r", i);
+            printf("%ld\r", i); fflush(stdout);
             writeSpace(bodies);
         }
     }
@@ -140,6 +141,6 @@ static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
 
 static PyMethodDef module_methods[] = {{"run", run, METH_VARARGS, NULL}, {0, 0}};
 
-static struct PyModuleDef gravity = { PyModuleDef_HEAD_INIT, .m_name = "_gravity", .m_methods = module_methods };
+static struct PyModuleDef gravity_cpu = { PyModuleDef_HEAD_INIT, .m_name = "gravity_cpu", .m_methods = module_methods };
 
-PyMODINIT_FUNC PyInit__gravity(void) { Py_Initialize(); import_array(); return PyModule_Create(&gravity); }
+PyMODINIT_FUNC PyInit_gravity_cpu(void) { Py_Initialize(); import_array(); return PyModule_Create(&gravity_cpu); }
