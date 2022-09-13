@@ -4,25 +4,22 @@
 #include <numpy/arrayobject.h>
 #include <time.h>
 
-int WRITE_INTERVAL, NSTEPS, N_lt, N;
-__device__ int d_N;
-__device__ float G, DT, DAMPING, SOFTENING;
 
 PyObject* init_space;
 
-void setSpace(float* p, float* v, PyArrayObject *space_arr) {
+void setSpace(float* p, float* v, PyArrayObject *space_arr, int N) {
     for (int i=0;i<N;i++) {
-        p[i] = *(float*)PyArray_GETPTR3(space_arr,i,0,0);
-        p[i + N] = *(float*)PyArray_GETPTR3(space_arr,i,1,0);
-        p[i + 2 * N] = *(float*)PyArray_GETPTR3(space_arr,i,2,0);
-        v[i] = *(float*)PyArray_GETPTR3(space_arr,i,0,1);
-        v[i + N] = *(float*)PyArray_GETPTR3(space_arr,i,1,1);
-        v[i + 2 * N] = *(float*)PyArray_GETPTR3(space_arr,i,2,1);
+        p[i] = *(double*)PyArray_GETPTR3(space_arr,i,0,0);
+        p[i + N] = *(double*)PyArray_GETPTR3(space_arr,i,1,0);
+        p[i + 2 * N] = *(double*)PyArray_GETPTR3(space_arr,i,2,0);
+        v[i] = *(double*)PyArray_GETPTR3(space_arr,i,0,1);
+        v[i + N] = *(double*)PyArray_GETPTR3(space_arr,i,1,1);
+        v[i + 2 * N] = *(double*)PyArray_GETPTR3(space_arr,i,2,1);
     }
 }
 
-void writeSpace(float* p){
-    FILE *file = fopen("result.data", "a");
+void writeSpace(float* p, int N){
+    FILE *file = fopen("trajectories/result.data", "a");
     for (unsigned long i=0;i<N;i++) {
         fprintf(file, "%f %f %f\n", p[i], p[i + N], p[i + N * 2]);
     }
@@ -31,87 +28,129 @@ void writeSpace(float* p){
 }
 
 __global__
-void forwardGravitation(float *p, float *f) {
+void forwardGravitation(float *p, float *f, float G, float SOFTENING, int N) {
     int k = blockIdx.x*blockDim.x + threadIdx.x;
     int i = (int) ((1 + sqrt(1 + 8 * (float) k)) / 2);
     int j = k - i * (i - 1) / 2;
     float dx = pow(p[i] - p[j], 2);
-    float dy = pow(p[i + d_N] - p[j + d_N], 2);
-    float dz = pow(p[i + 2 * d_N] - p[j + 2 * d_N], 2);
-    float r = pow(dx + dy + dz + SOFTENING, .5);
+    float dy = pow(p[i + N] - p[j + N], 2);
+    float dz = pow(p[i + 2 * N] - p[j + 2 * N], 2);
+    float r = sqrt(dx + dy + dz + SOFTENING);
     float h = G / (r * r * r);
     f[k] = h * (p[j] - p[i]);
-    f[k + d_N] = h * (p[j + d_N] - p[i + d_N]);
-    f[k + 2 * d_N] = h * (p[j + 2 * d_N] - p[i + 2 * d_N]);
+    f[k + N] = h * (p[j + N] - p[i + N]);
+    f[k + 2 * N] = h * (p[j + 2 * N] - p[i + 2 * N]);
 }
 
 __global__
-void sumAcceleration(float *v, float *f) {
+void sumAcceleration(float *v, float *f, float DT, int N) {
     int i = blockIdx.x*blockDim.x + threadIdx.x;
-    for (int j = 0; j < d_N; i++) {
+    for (int j = 0; j < N; j++) {
         if (j < i) {
             int k = i * (i - 1) / 2 + j;
             v[i] += DT * f[k];
-            v[i + d_N] += DT * f[k + d_N];
-            v[i + d_N * 2] += DT * f[k + d_N * 2];
+            v[i + N] += DT * f[k + N];
+            v[i + N * 2] += DT * f[k + N * 2];
         } else if (j > i) {
             int k = j * (j - 1) / 2 + i;
             v[i] -= DT * f[k];
-            v[i + d_N] -= DT * f[k + d_N];
-            v[i + d_N * 2] -= DT * f[k + d_N * 2];
+            v[i + N] -= DT * f[k + N];
+            v[i + N * 2] -= DT * f[k + N * 2];
         }
     }
 }
 
 __global__
-void forwardPosition(float *p, float *v) {
+void forwardPosition(float *p, float *v, float DT, int N) {
     int n = blockIdx.x*blockDim.x + threadIdx.x;
     p[n] += DT * v[n];
-    p[n + d_N] += DT * v[n + d_N];
-    p[n + 2 * d_N] += DT * v[n + 2 * d_N];
+    p[n + N] += DT * v[n + N];
+    p[n + 2 * N] += DT * v[n + 2 * N];
 }
 
 static PyObject * run(PyObject* Py_UNUSED(self), PyObject* args) {
-    printf("Start gravity_gpu!"); fflush(stdout);
+    printf("Start gravity_gpu!\n"); fflush(stdout);
+    int WRITE_INTERVAL, NSTEPS;
+    float G, DT, SOFTENING, DAMPING;
     if (!PyArg_ParseTuple(args, "Oiffffi", &init_space, &NSTEPS, &G, &DT, &DAMPING, &SOFTENING, &WRITE_INTERVAL)) {
         return NULL;
     }
     PyArrayObject *space_arr = (PyArrayObject *) PyArray_ContiguousFromObject(init_space, NPY_DOUBLE, 0, 0);
-    N = PyArray_DIMS(space_arr)[0];
-    cudaMemcpy(&d_N, &N, sizeof(int), cudaMemcpyHostToDevice);
-    N_lt = N * (N - 1) / 2;
-    float *p;
-    float *v;
+    int N = PyArray_DIMS(space_arr)[0];
+    int N_lt = N * (N - 1) / 2;
+    /* Init CPU arrays */
+    float *p, *v, *f;
     p = (float*)malloc(3 * sizeof(float) * N);
     v = (float*)malloc(3 * sizeof(float) * N);
-    setSpace(p, v, space_arr);
-    float *d_p, *d_v, *f;
+    f = (float*)malloc(3 * sizeof(float) * N_lt); // DEBUG
+    for (int i=0; i<N_lt; i++) f[i] = 0;
+    setSpace(p, v, space_arr, N);
+    /* Init CUDA arrays */
+    float *d_p, *d_v, *d_f;
     cudaMalloc(&d_p, 3 * sizeof(float) * N);
     cudaMalloc(&d_v, 3 * sizeof(float) * N);
-    cudaMalloc(&f, 3 * sizeof(float) * N_lt);
+    cudaMalloc(&d_f, 3 * sizeof(float) * N_lt);
     cudaMemcpy(d_p, p, 3 * sizeof(float) * N, cudaMemcpyHostToDevice);
     cudaMemcpy(d_v, v, 3 * sizeof(float) * N, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_f, f, 3 * sizeof(float) * N_lt, cudaMemcpyHostToDevice);
     FILE *file = fopen("trajectories/result.data", "w");
     fclose(file);
     time_t t0 = time(NULL);
-    printf("NSTEPS: %d\n", NSTEPS); fflush(stdout);
-    printf("N: %d\n", N); fflush(stdout);
-    printf("N_lt: %d\n", N_lt); fflush(stdout);
     for (unsigned long i = 0; i < NSTEPS; i++) {
-        forwardGravitation<<<(3*N_lt+255)/256, 256>>>(d_p, f);
-        sumAcceleration<<<(3*N+255)/256, 256>>>(d_v, f);
-        forwardPosition<<<(3*N+255)/256, 256>>>(d_p, d_v);
+        /* p */
+        cudaMemcpy(p, d_p, 3 * sizeof(float) * N, cudaMemcpyDeviceToHost);
+        printf("p[0] %f\n", p[0]); fflush(stdout);
+        printf("p[1] %f\n", p[1]); fflush(stdout);
+        /* v */
+        cudaMemcpy(v, d_v, 3 * sizeof(float) * N, cudaMemcpyDeviceToHost);
+        printf("v %f\n", v[0]); fflush(stdout);
+        /* f */
+        cudaMemcpy(f, d_f, 3 * sizeof(float) * N, cudaMemcpyDeviceToHost);
+        printf("f %f\n", f[0]); fflush(stdout);
+
+        int k = 0;
+        int ii = (int) ((1 + sqrt(1 + 8 * (float) k)) / 2);
+        int j = k - ii * (ii - 1) / 2;
+        printf("i %d\n", ii); fflush(stdout);
+        printf("j %d\n", j); fflush(stdout);
+        float dx = pow(p[ii] - p[j], 2);
+        float dy = pow(p[ii + N] - p[j + N], 2);
+        float dz = pow(p[ii + 2 * N] - p[j + 2 * N], 2);
+        float r = sqrt(dx + dy + dz + SOFTENING);
+        printf("r %f\n", r); fflush(stdout);
+        float h = G / (r * r * r);
+        printf("h %f\n", h); fflush(stdout);
+        float ff = h * (p[j] - p[ii]);
+        printf("f %f\n", ff); fflush(stdout);
+
+        forwardGravitation<<<1, N_lt>>>(d_p, d_f, G, SOFTENING, N);
+        sumAcceleration<<<1, N>>>(d_v, d_f, DT, N);
+        forwardPosition<<<1, N>>>(d_p, d_v, DT, N);
+
+        printf("after\n"); fflush(stdout);
+        /* p */
+        cudaMemcpy(p, d_p, 3 * sizeof(float) * N, cudaMemcpyDeviceToHost);
+        printf("p %f\n", p[0]); fflush(stdout);
+        /* v */
+        cudaMemcpy(v, d_v, 3 * sizeof(float) * N, cudaMemcpyDeviceToHost);
+        printf("v %f\n", v[0]); fflush(stdout);
+        /* f */
+        cudaMemcpy(f, d_f, 3 * sizeof(float) * N, cudaMemcpyDeviceToHost);
+        printf("f %f\n", f[0]); fflush(stdout);
         if (i % WRITE_INTERVAL == 0) {
             printf("%ld\r", i); fflush(stdout);
             cudaMemcpy(p, d_p, 3 * sizeof(float) * N, cudaMemcpyDeviceToHost);
-            writeSpace(p);
+            writeSpace(p, N);
         }
+        printf("++++++++++++++++++++++++++++++\n"); fflush(stdout);
     }
     printf("Total time: %f\n", (float) (time(NULL) - t0));
     free(p);
+    free(v);
+    free(f);
     cudaFree(d_p);
     cudaFree(d_v);
-    cudaFree(f);
+    cudaFree(d_f);
     return Py_None;
 }
 

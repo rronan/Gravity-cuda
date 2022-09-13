@@ -58,7 +58,7 @@ def parse_results(result_path="trajectories/result.data"):
             space = []
         else:
             space.append([float(x) for x in text[:-2].split(" ")])
-    res = np.array(space_list).astype(float)
+    res = np.array(space_list).astype("float32")
     return res
 
 
